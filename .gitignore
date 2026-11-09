@@ -1,0 +1,4 @@
+/target
+/zeno.toml
+/zeno.exe
+*.log

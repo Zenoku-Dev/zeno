@@ -1,0 +1,20 @@
+# Пример конфига zeno. Скопируйте в ~/.zeno/config.toml или ./zeno.toml и отредактируйте.
+
+# ClamAV через демон clamd (TCP INSTREAM). Если clamd_host не задан — пропускается.
+clamd_host = "127.0.0.1"
+clamd_port = 3310
+
+# Необязательно: бесплатный Auth-Key выдаётся на bazaar.abuse.ch
+malwarebazaar_auth_key = ""
+
+# Внешние движки: cmd + args, {path} заменяется на путь к проверяемому файлу.
+
+# ClamAV через CLI:
+[engine.clamscan]
+cmd = "clamscan"
+args = ["--no-summary", "{path}"]
+
+# YARA-X (движок разработки VirusTotal, github.com/VirusTotal/yara-x):
+# [engine.yarax]
+# cmd = "yarax"
+# args = ["--rules", "C:/yara-rules/index.yar", "{path}"]
