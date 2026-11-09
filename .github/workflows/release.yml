@@ -1,0 +1,90 @@
+name: release
+
+# Публикует релизы по тегу v*:
+#   git tag v0.2.1 && git push origin v0.2.1
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  build:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+          - os: macos-latest
+            target: aarch64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cross target (linux/macos)
+        if: matrix.os != 'windows-latest'
+        run: |
+          if [ "${{ matrix.target }}" = "x86_64-unknown-linux-musl" ]; then
+            sudo apt-get update -y && sudo apt-get install -y musl-tools
+          fi
+          rustup target add ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package (windows)
+        if: matrix.os == 'windows-latest'
+        shell: powershell
+        run: |
+          $stage = "zeno-${{ matrix.target }}"
+          New-Item -ItemType Directory -Path $stage -Force | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/zeno.exe" $stage
+          Copy-Item "README.md","LICENSE","zeno.toml.example" $stage
+          Compress-Archive -Path $stage -DestinationPath "${stage}.zip"
+
+      - name: Package (unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          stage="zeno-${{ matrix.target }}"
+          mkdir "$stage"
+          cp "target/${{ matrix.target }}/release/zeno" "$stage/"
+          cp README.md LICENSE zeno.toml.example "$stage/"
+          tar -czf "${stage}.tar.gz" "$stage"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zeno-${{ matrix.target }}
+          path: |
+            zeno-x86_64-pc-windows-msvc.zip
+            zeno-x86_64-unknown-linux-musl.tar.gz
+            zeno-aarch64-apple-darwin.tar.gz
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create GitHub release
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            artifacts/zeno-x86_64-pc-windows-msvc.zip \
+            artifacts/zeno-x86_64-unknown-linux-musl.tar.gz \
+            artifacts/zeno-aarch64-apple-darwin.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
