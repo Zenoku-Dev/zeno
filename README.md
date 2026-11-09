@@ -15,6 +15,22 @@
 
 ## Установка
 
+Linux / macOS (кучей одной командой):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/rival-afk/zeno/main/install.sh | sh
+```
+
+Windows (кучей одной командой):
+
+```powershell
+powershell -c "irm https://raw.githubusercontent.com/rival-afk/zeno/main/install.ps1 | iex"
+```
+
+Установщик сам поставит Rust (на Windows — GNU-тулчейн, без Visual Studio), склонирует репозиторий и сделает `cargo install`. Бинарник окажется в `~/.cargo/bin/zeno(.exe)`.
+
+Или вручную:
+
 ```
 cargo install --path .
 ```

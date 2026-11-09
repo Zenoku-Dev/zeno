@@ -30,9 +30,9 @@ if ($useGit) {
 function Install-Zeno($cargoPath) {
     $env:Path = "$cargoPath;$env:Path"
     Write-Host "[zeno] building (takes a few minutes on first run)..."
-    & cargo install --path $tmp || $false
+    & cargo install --path $tmp
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "[zeno] cargo build has failed - showing compiler errors above" -ForegroundColor Red
+        Write-Host "[zeno] cargo build has failed - show compiler errors above" -ForegroundColor Red
         exit 1
     }
 }
