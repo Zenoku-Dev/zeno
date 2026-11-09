@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/rival-afk/zenoku-design/main/assets/zeno/png/readme-banner-dark.png">
+    <img src="https://raw.githubusercontent.com/rival-afk/zenoku-design/main/assets/zeno/png/readme-banner.png" alt="zeno" width="440">
+  </picture>
+</p>
+
 # zenо
 
 [![ci](https://github.com/rival-afk/zeno/actions/workflows/ci.yml/badge.svg)](https://github.com/rival-afk/zeno/actions/workflows/ci.yml)
