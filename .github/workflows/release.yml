@@ -72,6 +72,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4 # нужен gh, чтобы определить репозиторий и сгенерировать notes
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -81,6 +83,7 @@ jobs:
       - name: Create GitHub release
         run: |
           gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" \
             --generate-notes \
             artifacts/zeno-x86_64-pc-windows-msvc.zip \
