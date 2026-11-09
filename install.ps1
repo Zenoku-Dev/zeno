@@ -13,6 +13,9 @@ if ($env:PROCESSOR_ARCHITECTURE -notmatch 'AMD64|X64|ARM64') {
     Write-Host "[zeno] error: unsupported Windows arch: $env:PROCESSOR_ARCHITECTURE" -ForegroundColor Red
     exit 1
 }
+if ($env:PROCESSOR_ARCHITECTURE -match 'ARM64') {
+    Write-Host "[zeno] note: no native windows/arm64 asset yet; installing x64 build (runs under Windows x64 emulation)" -ForegroundColor Yellow
+}
 
 Write-Host "[zeno] fetching latest release info..."
 try {

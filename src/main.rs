@@ -7,6 +7,7 @@
 //   clamd    - сканирование через ClamAV clamd (TCP INSTREAM)
 //   engines  - внешние движки (clamscan, YARA-X и любые другие)
 
+mod archives;
 mod clamd;
 mod config;
 mod engines;
@@ -18,6 +19,7 @@ use config::Config;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use walkdir::{DirEntry, WalkDir};
 
 // ---------- результат одного файла ----------
@@ -88,6 +90,9 @@ enum Cmd {
         /// переопределить лимит размера файла для хэширования, МБ
         #[arg(long)]
         max_size_mb: Option<u64>,
+        /// не заглядывать внутрь архивов (.zip/.tar/.tar.gz)
+        #[arg(long)]
+        no_archives: bool,
     },
     /// Проверить доступность открытых баз и движков
     Check,
@@ -99,7 +104,7 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     let cfg = Config::load();
     match cli.cmd {
-        Cmd::Scan { path, out, offline, no_clamd, max_size_mb } => {
+        Cmd::Scan { path, out, offline, no_clamd, max_size_mb, no_archives } => {
             let mut cfg = cfg.clone();
             if no_clamd {
                 cfg.clamd_host = None;
@@ -107,7 +112,7 @@ fn main() -> ExitCode {
             if let Some(mb) = max_size_mb {
                 cfg.max_file_size_mb = mb;
             }
-            command_scan(&cfg, &path, out == Out::Json, offline)
+            command_scan(&cfg, &path, out == Out::Json, offline, no_archives)
         }
         Cmd::Check => command_check(&cfg),
         Cmd::Engines => command_engines(&cfg),
@@ -211,9 +216,72 @@ fn scan_one(path: &Path, cfg: &Config, offline: bool) -> FileResult {
     res
 }
 
+// ---------- раскрытие архивов ----------
+
+static TEMP_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+/// Сканирует цель: обычный файл либо архив (.zip/.tar/.tar.gz) с содержимым.
+/// Для архива каждый файл внутри сканируется как отдельная запись,
+/// метка пути — "archive.zip!inner/path".
+fn scan_target(path: &Path, cfg: &Config, offline: bool, no_archives: bool) -> Vec<FileResult> {
+    let max_bytes = cfg.max_file_size_mb.saturating_mul(1024 * 1024);
+    if !no_archives && archives::detect_kind(path).is_some() {
+        match archives::read_entries(path, max_bytes) {
+            Ok(entries) if !entries.is_empty() => {
+                let tmpdir = std::env::temp_dir().join(format!(
+                    "zeno-arc-{}-{}",
+                    std::process::id(),
+                    TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+                ));
+                if let Err(e) = std::fs::create_dir_all(&tmpdir) {
+                    let mut r = scan_one(path, cfg, offline);
+                    r.errors.push(format!("archive: temp dir {}: {e:#}", tmpdir.display()));
+                    return vec![r];
+                }
+                let mut out = Vec::with_capacity(entries.len());
+                for (i, entry) in entries.into_iter().enumerate() {
+                    let name = entry.name.clone();
+                    let truncated = entry.truncated;
+                    let tmp = tmpdir.join(format!("entry-{i}.bin"));
+                    let r = match std::fs::write(&tmp, &entry.data) {
+                        Ok(()) => {
+                            let mut r = scan_one(&tmp, cfg, offline);
+                            r.path = format!("{}!{}", path.display(), name);
+                            if truncated {
+                                r.errors.push(format!(
+                                    "archive entry larger than {} MB, hashes are truncated",
+                                    cfg.max_file_size_mb
+                                ));
+                            }
+                            r
+                        }
+                        Err(e) => FileResult {
+                            path: format!("{}!{}", path.display(), name),
+                            errors: vec![format!("extract: {e:#}")],
+                            ..Default::default()
+                        },
+                    };
+                    std::fs::remove_file(&tmp).ok();
+                    out.push(r);
+                }
+                std::fs::remove_dir_all(&tmpdir).ok();
+                return out;
+            }
+            Ok(_) => {} // архив без файлов — трактуем как непрозрачный файл
+            Err(e) => {
+                // не парсится как архив — сканируем как непрозрачный файл, с пометкой
+                let mut r = scan_one(path, cfg, offline);
+                r.errors.push(format!("archive: {e:#}"));
+                return vec![r];
+            }
+        }
+    }
+    vec![scan_one(path, cfg, offline)]
+}
+
 // ---------- команды ----------
 
-fn command_scan(cfg: &Config, path: &Path, json: bool, offline: bool) -> ExitCode {
+fn command_scan(cfg: &Config, path: &Path, json: bool, offline: bool, no_archives: bool) -> ExitCode {
     if !path.exists() {
         eprintln!("[zeno] path not found: {}", path.display());
         return ExitCode::from(2);
@@ -222,18 +290,21 @@ fn command_scan(cfg: &Config, path: &Path, json: bool, offline: bool) -> ExitCod
     let mut results = Vec::new();
     let mut malicious = 0usize;
     let mut errored = 0usize;
+    let mut scanned = 0usize;
 
     for f in &files {
-        let r = scan_one(f, cfg, offline);
-        match r.verdict() {
-            "MALICIOUS" => malicious += 1,
-            "ERROR" => errored += 1,
-            _ => {}
-        }
-        if json {
-            results.push(r);
-        } else {
-            print_result(&r);
+        for r in scan_target(f, cfg, offline, no_archives) {
+            scanned += 1;
+            match r.verdict() {
+                "MALICIOUS" => malicious += 1,
+                "ERROR" => errored += 1,
+                _ => {}
+            }
+            if json {
+                results.push(r);
+            } else {
+                print_result(&r);
+            }
         }
     }
 
@@ -248,7 +319,7 @@ fn command_scan(cfg: &Config, path: &Path, json: bool, offline: bool) -> ExitCod
     } else {
         println!(
             "\n[zeno] scanned: {} file(s), malicious: {}, errored: {}{}",
-            files.len(),
+            scanned,
             malicious,
             errored,
             if offline { " (offline mode)" } else { "" }

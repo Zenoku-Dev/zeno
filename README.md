@@ -16,6 +16,8 @@
 ## Что умеет
 
 - **Хэши файла**: MD5, SHA-1, SHA-256
+- **Архивы**: `.zip`, `.tar`, `.tar.gz`/`.tgz` — файлы внутри сканируются как обычные (хэши + базы + движки), в выводе путь вида `archive.zip!inner/path`; сетевые lookups выполняются и для содержимого; `zeno scan x.zip --no-archives` — сканировать архив как непрозрачный файл
+- **Папки**: рекурсивно (`ignore_dirs` в конфиге)
 - **Открытые базы (без ключей):**
   - [CIRCL HashLookup](https://www.circl.lu/services/hashlookup/) — поиск SHA-256 среди известных вредоносных файлов
   - [MalwareBazaar (abuse.ch)](https://bazaar.abuse.ch/) — поиск известных сэмплов (нужен бесплатный Auth-Key, без него запрос пропускается)
@@ -52,10 +54,10 @@ cargo install --path zeno    # сборка из исходников, если 
 
 ### Как публикуется релиз
 
-Релизы делаются автоматически GitHub Actions (`.github/workflows/release.yml`): Windows x64, Linux amd64 (musl, static), macOS aarch64. Чтобы выпустить новую версию после фиксов:
+Релизы делаются автоматически GitHub Actions (`.github/workflows/release.yml`): Windows x64, Linux x86_64 (musl, static), Linux ARM64 (glibc ≥ 2.35), macOS Apple Silicon + macOS Intel. Чтобы выпустить новую версию после фиксов:
 
 ```bash
-git tag v0.2.1 && git push origin v0.2.1
+git tag v0.4.0 && git push origin v0.4.0
 ```
 
 
@@ -63,6 +65,8 @@ git tag v0.2.1 && git push origin v0.2.1
 
 ```bash
 zeno scan файл.exe
+zeno scan архив.zip            # файлы внутри архива тоже проверяются
+zeno scan архив.tar.gz --offline
 zeno scan C:\Users\me\Downloads --json
 zeno check     # проверить доступность баз
 zeno engines   # показать настроенные движки

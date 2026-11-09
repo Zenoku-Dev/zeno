@@ -1,6 +1,6 @@
 [package]
 name = "zeno"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 description = "zeno — локальный аналог VirusTotal с открытым кодом: хэши, проверки по открытым базам и сканирование открытыми AV-движками (ClamAV, YARA-X)"
 license = "MIT"
@@ -20,6 +20,9 @@ serde_json = "1"
 reqwest = { version = "0.12", features = ["blocking", "json", "rustls-tls"], default-features = false }
 walkdir = "2"
 toml = "0.8"
+zip = { version = "9", default-features = false, features = ["deflate"] }
+tar = "0.4"
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 
 [profile.release]
 lto = true

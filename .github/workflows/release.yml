@@ -1,7 +1,7 @@
 name: release
 
 # Публикует релизы по тегу v*:
-#   git tag v0.2.1 && git push origin v0.2.1
+#   git tag v0.4.0 && git push origin v0.4.0
 on:
   push:
     tags: ["v*"]
@@ -11,6 +11,9 @@ permissions:
 
 env:
   CARGO_INCREMENTAL: 0
+  # для кросс-компиляции aarch64-unknown-linux-gnu
+  CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+  CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
 
 jobs:
   build:
@@ -22,8 +25,12 @@ jobs:
             target: x86_64-pc-windows-msvc
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
+          - os: ubuntu-22.04
+            target: aarch64-unknown-linux-gnu   # glibc >= 2.35, кросс gcc ниже
           - os: macos-latest
             target: aarch64-apple-darwin
+          - os: macos-13                # Intel
+            target: x86_64-apple-darwin
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -33,6 +40,8 @@ jobs:
         run: |
           if [ "${{ matrix.target }}" = "x86_64-unknown-linux-musl" ]; then
             sudo apt-get update -y && sudo apt-get install -y musl-tools
+          elif [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
+            sudo apt-get update -y && sudo apt-get install -y gcc-aarch64-linux-gnu
           fi
           rustup target add ${{ matrix.target }}
 
@@ -65,7 +74,9 @@ jobs:
           path: |
             zeno-x86_64-pc-windows-msvc.zip
             zeno-x86_64-unknown-linux-musl.tar.gz
+            zeno-aarch64-unknown-linux-gnu.tar.gz
             zeno-aarch64-apple-darwin.tar.gz
+            zeno-x86_64-apple-darwin.tar.gz
           if-no-files-found: error
 
   publish:
@@ -88,6 +99,8 @@ jobs:
             --generate-notes \
             artifacts/zeno-x86_64-pc-windows-msvc.zip \
             artifacts/zeno-x86_64-unknown-linux-musl.tar.gz \
-            artifacts/zeno-aarch64-apple-darwin.tar.gz
+            artifacts/zeno-aarch64-unknown-linux-gnu.tar.gz \
+            artifacts/zeno-aarch64-apple-darwin.tar.gz \
+            artifacts/zeno-x86_64-apple-darwin.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
