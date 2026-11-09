@@ -5,7 +5,15 @@ clamd_host = "127.0.0.1"
 clamd_port = 3310
 
 # Необязательно: бесплатный Auth-Key выдаётся на bazaar.abuse.ch
+# (без ключа запрос к MalwareBazaar пропускается; с неверным — ошибка в выводе)
 malwarebazaar_auth_key = ""
+
+# Лимит размера файла для хэширования, МБ (по умолчанию 200).
+# max_file_size_mb = 200
+
+# Директории, которые пропускаются при сканировании папки
+# (по умолчанию: .git .svn .hg node_modules target __pycache__)
+# ignore_dirs = [".git", "node_modules", "target"]
 
 # Внешние движки: cmd + args, {path} заменяется на путь к проверяемому файлу.
 

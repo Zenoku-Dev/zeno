@@ -4,7 +4,7 @@ version = "0.2.0"
 edition = "2021"
 description = "zeno — локальный аналог VirusTotal с открытым кодом: хэши, проверки по открытым базам и сканирование открытыми AV-движками (ClamAV, YARA-X)"
 license = "MIT"
-repository = "https://github.com/stude/zeno"
+repository = "https://github.com/rival-afk/zeno"
 keywords = ["antivirus", "clamav", "yara", "security", "scanner"]
 categories = ["command-line-utilities"]
 

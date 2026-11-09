@@ -7,7 +7,7 @@
 - **Хэши файла**: MD5, SHA-1, SHA-256
 - **Открытые базы (без ключей):**
   - [CIRCL HashLookup](https://www.circl.lu/services/hashlookup/) — поиск SHA-256 среди известных вредоносных файлов
-  - [MalwareBazaar (abuse.ch)](https://bazaar.abuse.ch/) — поиск известных сэмплов (опционально с Auth-Key)
+  - [MalwareBazaar (abuse.ch)](https://bazaar.abuse.ch/) — поиск известных сэмплов (нужен бесплатный Auth-Key, без него запрос пропускается)
 - **Открытые AV/YARA-движки:**
   - **ClamAV** — через `clamd` (TCP INSTREAM, порт 3310 по умолчанию) и через `clamscan` CLI
   - **YARA-X** — через CLI `yarax`/`yara-x` (движок разработки VirusTotal, сам открыт: github.com/VirusTotal/yara-x)
@@ -62,7 +62,9 @@ zeno engines   # показать настроенные движки
 ```toml
 clamd_host = "127.0.0.1"   # если отсутствует — не сканировать через clamd
 clamd_port = 3310
-malwarebazaar_auth_key = "" # необязательно; бесплатно выдается на abuse.ch
+malwarebazaar_auth_key = "" # требуется бесплатный Auth-Key с bazaar.abuse.ch; без него MalwareBazaar пропускается
+max_file_size_mb = 200      # лимит размера файла для хэширования
+ignore_dirs = [".git", "node_modules", "target"]  # директории, пропускаемые при сканировании папки
 
 [engine.clamscan]
 cmd = "clamscan"

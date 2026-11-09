@@ -13,7 +13,6 @@ mod engines;
 mod hashes;
 mod lookups;
 
-use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
 use config::Config;
 use serde::Serialize;
@@ -49,10 +48,6 @@ impl FileResult {
         } else {
             "CLEAN"
         }
-    }
-
-    fn malicious(&self) -> bool {
-        !self.detections.is_empty()
     }
 }
 
@@ -103,7 +98,7 @@ enum Cmd {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let cfg = Config::load();
-    let code = match cli.cmd {
+    match cli.cmd {
         Cmd::Scan { path, out, offline, no_clamd, max_size_mb } => {
             let mut cfg = cfg.clone();
             if no_clamd {
@@ -116,8 +111,7 @@ fn main() -> ExitCode {
         }
         Cmd::Check => command_check(&cfg),
         Cmd::Engines => command_engines(&cfg),
-    };
-    code
+    }
 }
 
 // ---------- сбор списка файлов ----------
@@ -219,9 +213,10 @@ fn scan_one(path: &Path, cfg: &Config, offline: bool) -> FileResult {
 
 // ---------- команды ----------
 
-fn command_scan(cfg: &Config, path: &Path, json: bool, offline: bool) -> Result {
+fn command_scan(cfg: &Config, path: &Path, json: bool, offline: bool) -> ExitCode {
     if !path.exists() {
-        return Err(anyhow::anyhow!("path not found: {}", path.display()));
+        eprintln!("[zeno] path not found: {}", path.display());
+        return ExitCode::from(2);
     }
     let files = collect_files(path, cfg);
     let mut results = Vec::new();
@@ -243,8 +238,13 @@ fn command_scan(cfg: &Config, path: &Path, json: bool, offline: bool) -> Result 
     }
 
     if json {
-        let out = serde_json::to_string_pretty(&results)?;
-        println!("{out}");
+        match serde_json::to_string_pretty(&results) {
+            Ok(out) => println!("{out}"),
+            Err(e) => {
+                eprintln!("[zeno] failed to serialize JSON: {e}");
+                return ExitCode::from(2);
+            }
+        }
     } else {
         println!(
             "\n[zeno] scanned: {} file(s), malicious: {}, errored: {}{}",
@@ -256,11 +256,10 @@ fn command_scan(cfg: &Config, path: &Path, json: bool, offline: bool) -> Result 
     }
     // для скриптов: MALICIOUS -> код 1
     if malicious > 0 {
-        Ok(ExitCode::from(1)) as Result
+        ExitCode::from(1)
     } else {
-        Ok(ExitCode::SUCCESS) as Result
+        ExitCode::SUCCESS
     }
-    .or_else(|_: anyhow::Error| Ok(ExitCode::from(1)))
 }
 
 fn print_result(r: &FileResult) {
@@ -279,7 +278,7 @@ fn print_result(r: &FileResult) {
     }
 }
 
-fn command_check(cfg: &Config) -> Result {
+fn command_check(cfg: &Config) -> ExitCode {
     println!("[zeno] engine version: {}", env!("CARGO_PKG_VERSION"));
 
     println!("[zeno] checking CIRCL hashlookup...");
@@ -299,13 +298,13 @@ fn command_check(cfg: &Config) -> Result {
     if cfg.malwarebazaar_auth_key.is_some() {
         println!("[zeno] malwarebazaar auth key: set");
     } else {
-        println!("[zeno] malwarebazaar auth key: not set (https://bazaar.abuse.ch)");
+        println!("[zeno] malwarebazaar auth key: not set (API requires a free key, see https://bazaar.abuse.ch)");
     }
 
-    Ok(ExitCode::SUCCESS)
+    ExitCode::SUCCESS
 }
 
-fn command_engines(cfg: &Config) -> Result {
+fn command_engines(cfg: &Config) -> ExitCode {
     if cfg.engines.is_empty() {
         println!("[zeno] no external engines configured (see zeno.toml.example)");
     }
@@ -316,5 +315,5 @@ fn command_engines(cfg: &Config) -> Result {
         Some(h) => println!("clamd: {h}:{}", cfg.clamd_port),
         None => println!("clamd: not configured"),
     }
-    Ok(ExitCode::SUCCESS)
+    ExitCode::SUCCESS
 }
