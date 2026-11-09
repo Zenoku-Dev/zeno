@@ -13,6 +13,7 @@ mod config;
 mod engines;
 mod hashes;
 mod lookups;
+mod run;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use config::Config;
@@ -98,6 +99,23 @@ enum Cmd {
     Check,
     /// Показать настроенные движки
     Engines,
+    /// Запустить файл в изолированной среде (РЕАЛЬНОЕ выполнение, см. docs/emulation.md)
+    Run {
+        /// файл для запуска
+        file: PathBuf,
+        /// цель: alpine (Linux ELF в Docker) | windows (Cuckoo3) | macos (OSX-KVM, только проверка)
+        #[arg(long)]
+        target: String,
+        /// таймаут выполнения, секунд
+        #[arg(long, default_value_t = 60)]
+        timeout: u64,
+        /// вывод в JSON
+        #[arg(long)]
+        json: bool,
+        /// подтвердить, что вы понимаете риск реального выполнения кода
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 fn main() -> ExitCode {
@@ -116,6 +134,7 @@ fn main() -> ExitCode {
         }
         Cmd::Check => command_check(&cfg),
         Cmd::Engines => command_engines(&cfg),
+        Cmd::Run { file, target, timeout, json, yes } => command_run(&cfg, &file, &target, timeout, json, yes),
     }
 }
 
@@ -373,6 +392,46 @@ fn command_check(cfg: &Config) -> ExitCode {
     }
 
     ExitCode::SUCCESS
+}
+
+fn command_run(cfg: &Config, file: &Path, target: &str, timeout: u64, json: bool, yes: bool) -> ExitCode {
+    if !file.exists() {
+        eprintln!("[zeno-run] path not found: {}", file.display());
+        return ExitCode::from(2);
+    }
+    if !yes {
+        eprintln!("[zeno-run] ВНИМАНИЕ: 'zeno run' РЕАЛЬНО ВЫПОЛНЯЕТ (или отправляет на выполнение) файл.");
+        eprintln!("  alpine:  файл запустится в контейнере alpine (--network=none, без capabilities)");
+        eprintln!("  windows: файл отправится на анализ в Cuckoo3 (Windows-VM)");
+        eprintln!("  macos:   только проверка окружения, файл НЕ запускается");
+        eprintln!("  Перезапустите с --yes, если понимаете риск (см. docs/emulation.md).");
+        return ExitCode::from(2);
+    }
+    match run::run(file, target, timeout, cfg) {
+        Ok(report) => {
+            let code = match (report.executed, report.exit_code) {
+                (_, Some(0)) => ExitCode::SUCCESS,
+                (true, Some(_)) => ExitCode::from(1),
+                _ => ExitCode::SUCCESS,
+            };
+            if json {
+                match serde_json::to_string_pretty(&report) {
+                    Ok(out) => println!("{out}"),
+                    Err(e) => {
+                        eprintln!("[zeno-run] failed to serialize JSON: {e}");
+                        return ExitCode::from(2);
+                    }
+                }
+            } else {
+                run::print_report(&report);
+            }
+            code
+        }
+        Err(e) => {
+            eprintln!("[zeno-run] {e:#}");
+            ExitCode::from(2)
+        }
+    }
 }
 
 fn command_engines(cfg: &Config) -> ExitCode {

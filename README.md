@@ -25,6 +25,7 @@
   - **ClamAV** — через `clamd` (TCP INSTREAM, порт 3310 по умолчанию) и через `clamscan` CLI
   - **YARA-X** — через CLI `yarax`/`yara-x` (движок разработки VirusTotal, сам открыт: github.com/VirusTotal/yara-x)
   - любые другие движки настраиваются в `zeno.toml` (например `esets_cli`, `sophos-savdi`, custom)
+- **Динамический запуск** (`zeno run`, docs/emulation.md): РЕАЛЬНОЕ выполнение файла в изоляции — Linux ELF в Docker+alpine (`--network=none`), Windows PE через Cuckoo3, проверка macOS-окружения через OSX-KVM
 
 ## Установка
 
@@ -70,6 +71,7 @@ zeno scan архив.tar.gz --offline
 zeno scan C:\Users\me\Downloads --json
 zeno check     # проверить доступность баз
 zeno engines   # показать настроенные движки
+zeno run sample.elf --target alpine --yes   # РЕАЛЬНЫЙ запуск в контейнере (см. docs/emulation.md)
 ```
 
 ## Конфигурация `~/.zeno/config.toml` (или `./zeno.toml`)

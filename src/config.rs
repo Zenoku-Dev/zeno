@@ -25,6 +25,14 @@ pub struct Config {
     pub ignore_dirs: Vec<String>,
     /// внешние движки из таблицы [engine.<name>]
     pub engines: BTreeMap<String, EngineCfg>,
+    /// URL веб-API Cuckoo3 (по умолчанию http://127.0.0.1:8090); для --target windows
+    pub cuckoo_url: Option<String>,
+    /// токен Cuckoo3 API (cuckoo api token --list); для --target windows
+    pub cuckoo_token: Option<String>,
+    /// путь к клону OSX-KVM; для --target macos (по умолчанию ~/OSX-KVM)
+    pub osx_kvm_path: Option<String>,
+    /// образ docker для --target alpine (по умолчанию alpine:latest)
+    pub zeno_alpine_image: Option<String>,
 }
 
 impl Default for Config {
@@ -43,6 +51,10 @@ impl Default for Config {
                 "__pycache__".to_string(),
             ],
             engines: BTreeMap::new(),
+            cuckoo_url: None,
+            cuckoo_token: None,
+            osx_kvm_path: None,
+            zeno_alpine_image: None,
         }
     }
 }
@@ -83,6 +95,18 @@ impl Config {
             if m > 0 {
                 self.max_file_size_mb = m as u64;
             }
+        }
+        if let Some(k) = v.get("cuckoo_url").and_then(|x| x.as_str()).filter(|s| !s.trim().is_empty()) {
+            self.cuckoo_url = Some(k.to_string());
+        }
+        if let Some(k) = v.get("cuckoo_token").and_then(|x| x.as_str()).filter(|s| !s.trim().is_empty()) {
+            self.cuckoo_token = Some(k.to_string());
+        }
+        if let Some(k) = v.get("osx_kvm_path").and_then(|x| x.as_str()).filter(|s| !s.trim().is_empty()) {
+            self.osx_kvm_path = Some(k.to_string());
+        }
+        if let Some(k) = v.get("zeno_alpine_image").and_then(|x| x.as_str()).filter(|s| !s.trim().is_empty()) {
+            self.zeno_alpine_image = Some(k.to_string());
         }
         if let Some(a) = v.get("ignore_dirs").and_then(|x| x.as_array()) {
             self.ignore_dirs = a.iter().filter_map(|i| i.as_str().map(String::from)).collect();

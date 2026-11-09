@@ -15,6 +15,12 @@ malwarebazaar_auth_key = ""
 # (по умолчанию: .git .svn .hg node_modules target __pycache__)
 # ignore_dirs = [".git", "node_modules", "target"]
 
+# Динамический запуск (docs/emulation.md), все ключи необязательны:
+# cuckoo_url = "http://127.0.0.1:8090"   # веб-API Cuckoo3, для --target windows
+# cuckoo_token = ""                      # cuckoo api token --list
+# zeno_alpine_image = "alpine:latest"    # образ docker для --target alpine
+# osx_kvm_path = "/home/me/OSX-KVM"      # клон OSX-KVM, для --target macos
+
 # Внешние движки: cmd + args, {path} заменяется на путь к проверяемому файлу.
 
 # ClamAV через CLI:
