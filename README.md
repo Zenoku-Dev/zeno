@@ -15,6 +15,8 @@
 
 ## Установка
 
+`zeno` ставит **готовый бинарник из Releases** (сборку делают GitHub Actions):
+
 Linux / macOS (одной командой):
 
 ```bash
@@ -27,13 +29,24 @@ Windows (одной командой):
 powershell -c "irm https://raw.githubusercontent.com/rival-afk/zeno/main/install.ps1 | iex"
 ```
 
-Установщик сам поставит Rust (на Windows — GNU-тулчейн, без Visual Studio), склонирует репозиторий и сделает `cargo install`. Бинарник окажется в `~/.cargo/bin/zeno(.exe)`.
+Бинарник для Windows устанавливается в `%LOCALAPPDATA%\Programs\zeno` и добавляется в user PATH.
+Бинарник для Linux/macOS — в `~/.local/bin`.
 
-Или вручную:
+Вручную:
 
+```bash
+git clone https://github.com/rival-afk/zeno && \
+cargo install --path zeno    # сборка из исходников, если релизов нет
 ```
-cargo install --path .
+
+### Как публикуется релиз
+
+Релизы делаются автоматически GitHub Actions (`.github/workflows/release.yml`): Windows x64, Linux amd64 (musl, static), macOS aarch64. Чтобы выпустить новую версию после фиксов:
+
+```bash
+git tag v0.2.1 && git push origin v0.2.1
 ```
+
 
 ## Использование
 
@@ -65,6 +78,6 @@ args = ["--rules", "C:/yara-rules/index.yar", "{path}"]
 - Не замена антивирусу. zeno — инструмент проверки по хэшам и движкам, в основном **оффлайн-friendly** и непрозрачный, полностью open-source.
 - Не отправляет ваши файлы никуда. На удалённые базы уходят **только SHA-256 хэши** (как у VirusTotal web-lookup), сами файлы никогда не покидают ПК.
 
-## Лицензия
+## Права и лицензия
 
-MIT
+MIT — см. LICENSE.
