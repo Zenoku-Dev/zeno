@@ -1,294 +1,74 @@
 // zeno — локальный аналог VirusTotal с открытым кодом.
-// Хэши файла + проверка по открытым базам (CIRCL HashLookup, MalwareBazaar)
-// + сканирование открытыми движками (ClamAV clamd/clamscan, YARA-X).
+//
+// Модули:
+//   config   — конфигурация (zeno.toml / ~/.zeno/config.toml)
+//   hashes   - потоковые MD5/SHA1/SHA256
+//   lookups  - открытые базы: CIRCL HashLookup, MalwareBazaar (только SHA-256, файлы не покидают ПК)
+//   clamd    - сканирование через ClamAV clamd (TCP INSTREAM)
+//   engines  - внешние движки (clamscan, YARA-X и любые другие)
 
-use anyhow::{anyhow, Context, Result};
-use clap::{Parser, Subcommand};
-use md5::Md5;
+mod clamd;
+mod config;
+mod engines;
+mod hashes;
+mod lookups;
+
+use anyhow::Result;
+use clap::{Parser, Subcommand, ValueEnum};
+use config::Config;
 use serde::Serialize;
-use sha1::Sha1;
-use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
-use std::io::{Read, Write};
-use std::net::TcpStream;
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::Duration;
-use walkdir::WalkDir;
+use std::process::ExitCode;
+use walkdir::{DirEntry, WalkDir};
 
-// ---------- Конфигурация ----------
+// ---------- результат одного файла ----------
 
-#[derive(Debug, Clone, Default)]
-struct Config {
-    clamd_host: Option<String>,
-    clamd_port: u16,
-    engines: BTreeMap<String, EngineCfg>,
-    mb_auth_key: Option<String>,
-    te_threshold: u8,
-}
-
-const DEFAULT_CLAMD_PORT: u16 = 3310;
-
-impl Config {
-    fn load() -> Self {
-        let mut cfg = Config { clamd_port: DEFAULT_CLAMD_PORT, te_threshold: 5, ..Default::default() };
-        // ~/.zeno/config.toml или ./zeno.toml
-        let paths = [
-            dirs_config().join("config.toml"),
-            PathBuf::from("zeno.toml"),
-        ];
-        for p in paths.iter() {
-            if let Ok(s) = std::fs::read_to_string(p) {
-                if let Ok(v) = s.parse::<toml::Table>() {
-                    if let Some(h) = v.get("clamd_host").and_then(|x| x.as_str()) {
-                        cfg.clamd_host = Some(h.to_string());
-                    }
-                    if let Some(p) = v.get("clamd_port").and_then(|x| x.as_integer()) {
-                        cfg.clamd_port = p as u16;
-                    }
-                    if let Some(k) = v.get("malwarebazaar_auth_key").and_then(|x| x.as_str()) {
-                        cfg.mb_auth_key = Some(k.to_string());
-                    }
-                    if let Some(t) = v.get("tor_expert_threshold").and_then(|x| x.as_integer()) {
-                        cfg.te_threshold = t as u8;
-                    }
-                    if let Some(eng) = v.get("engine").and_then(|x| x.as_table()) {
-                        for (name, e) in eng {
-                            let args: Vec<String> = e
-                                .get("args")
-                                .and_then(|x| x.as_array())
-                                .map(|a| a.iter().filter_map(|i| i.as_str().map(String::from)).collect())
-                                .unwrap_or_default();
-                            cfg.engines.insert(
-                                name.clone(),
-                                EngineCfg {
-                                    cmd: e.get("cmd").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                                    args,
-                                },
-                            );
-                        }
-                    }
-                }
-                break;
-            }
-        }
-        cfg
-    }
-}
-
-fn dirs_config() -> PathBuf {
-    std::env::var("USERPROFILE")
-        .or_else(|_| std::env::var("HOME"))
-        .map(|h| PathBuf::from(h).join(".zeno"))
-        .unwrap_or_else(|| PathBuf::from("."))
-}
-
-#[derive(Debug, Clone)]
-struct EngineCfg {
-    cmd: String,
-    args: Vec<String>,
-}
-
-impl EngineCfg {
-    fn run(&self, path: &Path) -> Result<Vec<String>> {
-        let args: Vec<String> = self
-            .args
-            .iter()
-            .map(|a| if a == "{path}" { path.display().to_string() } else { a.clone() })
-            .collect();
-        let out = Command::new(&self.cmd)
-            .args(&args)
-            .output()
-            .with_context(|| format!("работа движка {}", self.cmd))?;
-        let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
-        let hits: Vec<String> = text
-            .lines()
-            .filter(|l| l.to_uppercase().contains("FOUND") || l.contains("matches:") || l.to_uppercase().contains("HIT:"))
-            .filter(|l| !l.contains("No matches"))
-            .map(|l| l.trim().to_string())
-            .collect();
-        Ok(hits)
-    }
-}
-
-// ---------- Результаты ----------
-
-#[derive(Debug, Serialize, Default)]
-struct ScanResult {
+#[derive(Serialize, Default, Debug)]
+struct FileResult {
     path: String,
     size: u64,
     md5: String,
     sha1: String,
     sha256: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    malicious_apis: Vec<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    engine_hits: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    clamd_hit: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
+    /// файл известен чистым (есть в hashlookup как известный, без детектов)
+    known_clean: bool,
+    /// найденные детекты движками/базами
+    detections: Vec<String>,
+    /// ошибки при обработке файла (недоступность сети, clamd, движка...)
+    errors: Vec<String>,
 }
 
-impl ScanResult {
+impl FileResult {
     fn verdict(&self) -> &'static str {
-        let n = self.malicious_apis.len()
-            + self.engine_hits.len()
-            + if self.clamd_hit.is_some() { 1 } else { 0 };
-        if n != 0 {
+        if !self.detections.is_empty() {
             "MALICIOUS"
+        } else if !self.errors.is_empty() && self.sha256.is_empty() {
+            "ERROR"
+        } else if self.known_clean {
+            "KNOWN-CLEAN"
         } else {
             "CLEAN"
         }
     }
-}
 
-// ---------- Хэши ----------
-
-fn hash_file(path: &Path, limit: u64) -> Result<(u64, String, String, String)> {
-    let f = std::fs::File::open(path).with_context(|| format!("открытие {}", path.display()))?;
-    let mut f = f.take(limit);
-    let mut buf = Vec::with_capacity(64 * 1024);
-    f.read_to_end(&mut buf)?;
-    let md5 = hex::encode(Md5::digest(&buf));
-    let sha1 = hex::encode(Sha1::digest(&buf));
-    let sha256 = hex::encode(Sha256::digest(&buf));
-    let sz = buf.len() as u64;
-    Ok((sz, md5, sha1, sha256))
-}
-
-// ---------- Открытые базы ----------
-
-fn circl_lookup(sha256: &str) -> Result<Option<Vec<String>>> {
-    let url = format!("https://api.hashlookup.ch/lookup/sha256/{sha256}");
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(15))
-        .user_agent("zeno/0.2")
-        .build()?;
-    let resp = client.get(&url).send()?;
-    match resp.status().as_u16() {
-        200 => {
-            let v: serde_json::Value = resp.json()?;
-            let fam = v
-                .get("KnownMalicious")
-                .and_then(|x| x.as_array())
-                .map(|a| a.iter().filter_map(|i| i.as_str().map(String::from)).collect::<Vec<_>>())
-                .unwrap_or_default();
-            if fam.is_empty() && v.get("hashlookup:parent").is_some() {
-                Ok(Some(vec!["known-file (hashlookup parent)".into()]))
-            } else if fam.is_empty() {
-                Ok(Some(vec![]))
-            } else {
-                Ok(Some(format!("hashlookup: {fam:?}").lines().map(String::from).collect()))
-            }
-        }
-        404 => Ok(Some(vec![])),
-        _ => Err(anyhow!("hashlookup: HTTP {}", resp.status())),
+    fn malicious(&self) -> bool {
+        !self.detections.is_empty()
     }
-}
-
-fn malwarebazaar(sha256: &str, auth: Option<&String>) -> Result<bool> {
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(15))
-        .user_agent("zeno/0.2")
-        .build()?;
-    let mut req = client
-        .post("https://mb-api.abuse.ch/api/v1/")
-        .form(&[("query", "get_info"), ("hash", sha256)]);
-    if let Some(k) = auth {
-        req = req.header("Auth-Key", k);
-    }
-    let resp = req.send()?.json::<serde_json::Value>()?;
-    Ok(resp.get("query_status").and_then(|x| x.as_str()) == Some("ok"))
-}
-
-// ---------- ClamAV clamd (INSTREAM) ----------
-
-fn clamd_scan(path: &Path, host: &str, port: u16) -> Result<Option<String>> {
-    let path_str = path.as_os_str().to_string_lossy().to_string();
-    if path_str.contains('\u{0}') {
-        return Err(anyhow!("путь содержит NUL"));
-    }
-    let mut stream = TcpStream::connect((host, port)).with_context(|| format!("подключение к clamd {host}:{port}"))?;
-    stream.set_read_timeout(Some(Duration::from_secs(300)))?;
-    stream.write_all(b"zINSTREAM\0")?;
-    let data = std::fs::read(path)?;
-    for chunk in data.chunks(64 * 1024) {
-        let len = (chunk.len() as u32).to_be_bytes();
-        stream.write_all(&len)?;
-        stream.write_all(chunk)?;
-    }
-    stream.write_all(&0u32.to_be_bytes())?;
-    let mut resp = String::new();
-    stream.read_to_string(&mut resp)?;
-    let resp = resp.trim_end_matches('\0');
-    if resp.is_empty() {
-        return Err(anyhow!("пустой ответ clamd"));
-    }
-    if resp.to_uppercase().contains("FOUND") {
-        Ok(Some(resp.to_string()))
-    } else {
-        Ok(None)
-    }
-}
-
-// ---------- Скан одного файла ----------
-
-fn scan_file(path: &Path, cfg: &Config) -> ScanResult {
-    let mut r = ScanResult { path: path.display().to_string(), ..Default::default() };
-    match hash_file(path, 200 * 1024 * 1024) {
-        Ok((sz, md5, sha1, sha256)) => {
-            r.size = sz;
-            r.sha256 = sha256.clone();
-            r.sha1 = sha1;
-            r.md5 = md5;
-            if let Ok(Some(fam)) = circl_lookup(&sha256) {
-                r.malicious_apis.extend(fam);
-            }
-            if malwarebazaar(&sha256, cfg.mb_auth_key.as_ref()).unwrap_or(false) {
-                r.malicious_apis.push("malwarebazaar: sample known".into());
-            }
-        }
-        Err(e) => r.error = Some(format!("{e:#}")),
-    }
-    for (name, eng) in &cfg.engines {
-        match eng.run(path) {
-            Ok(hits) if !hits.is_empty() => {
-                r.engine_hits.push(format!("{name}: {}", hits.join(" | ")));
-            }
-            Ok(_) => {}
-            Err(e) => r.error = Some(format!("{e:#}")),
-        }
-    }
-    if let Some(host) = cfg.clamd_host.clone() {
-        match clamd_scan(path, &host, cfg.clamd_port) {
-            Ok(Some(hit)) => r.clamd_hit = Some(hit),
-            Ok(None) => {}
-            Err(e) => r.error = Some(format!("{e:#}")),
-        }
-    }
-    r
-}
-
-fn collect_files(p: &Path) -> Vec<PathBuf> {
-    if p.is_file() {
-        return vec![p.to_path_buf()];
-    }
-    WalkDir::new(p)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file())
-        .map(|e| e.path().to_path_buf())
-        .collect()
 }
 
 // ---------- CLI ----------
+
+#[derive(Copy, Clone, PartialEq, Eq, ValueEnum)]
+enum Out {
+    Table,
+    Json,
+}
 
 #[derive(Parser)]
 #[command(
     name = "zeno",
     version,
-    about = "Локальный аналог VirusTotal: открытые базы + открытые движки (ClamAV, YARA-X)"
+    about = "Локальный аналог VirusTotal на открытых движках: хэши + открытые базы (CIRCL HashLookup, MalwareBazaar) + ClamAV / YARA-X."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -297,71 +77,244 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Просканировать файл/папку
+    /// Просканировать файл или папку
     Scan {
+        /// файл или папка для проверки
         path: PathBuf,
-        /// Вывести результат в JSON
+        /// формат вывода
+        #[arg(value_enum, default_value = "table")]
+        out: Out,
+        /// не ходить в сеть (только локальные движки)
         #[arg(long)]
-        json: bool,
+        offline: bool,
+        /// не сканировать через clamd даже если настроен
+        #[arg(long)]
+        no_clamd: bool,
+        /// переопределить лимит размера файла для хэширования, МБ
+        #[arg(long)]
+        max_size_mb: Option<u64>,
     },
-    /// Настроить список внешних AV/YARA движков в zeno.toml
-    Engines,
-    /// Проверить доступность открытых баз
+    /// Проверить доступность открытых баз и движков
     Check,
+    /// Показать настроенные движки
+    Engines,
 }
 
-fn main() -> Result<()> {
+fn main() -> ExitCode {
     let cli = Cli::parse();
     let cfg = Config::load();
-    match cli.cmd {
-        Cmd::Scan { path, json } => {
-            let files = collect_files(&path);
-            let mut results = Vec::new();
-            for f in files {
-                let r = scan_file(&f, &cfg);
-                if !json {
-                    println!(
-                        "{} {} {}",
-                        hex::encode(&r.sha256[..8.min(r.sha256.len())]),
-                        r.verdict(),
-                        r.path
-                    );
-                }
-                results.push(r);
+    let code = match cli.cmd {
+        Cmd::Scan { path, out, offline, no_clamd, max_size_mb } => {
+            let mut cfg = cfg.clone();
+            if no_clamd {
+                cfg.clamd_host = None;
             }
-            if json {
-                println!("{}", serde_json::to_string_pretty(&results)?);
-            } else {
-                let bad = results.iter().filter(|r| r.verdict() != "CLEAN").count();
-                println!("\nИтого: {} файлов, malicious: {}", results.len(), bad);
+            if let Some(mb) = max_size_mb {
+                cfg.max_file_size_mb = mb;
             }
+            command_scan(&cfg, &path, out == Out::Json, offline)
         }
-        Cmd::Engines => {
-            for (n, e) in &cfg.engines {
-                println!("{n}: {} {}", e.cmd, e.args.join(" "));
-            }
-            match cfg.clamd_host {
-                Some(h) => println!("clamd: {h}:{}", cfg.clamd_port),
-                None => println!("clamd: не настроен (clamd_host в zeno.toml)"),
-            }
-            println!("hashlookup: включён всегда (CIRCL, без ключа)");
+        Cmd::Check => command_check(&cfg),
+        Cmd::Engines => command_engines(&cfg),
+    };
+    code
+}
+
+// ---------- сбор списка файлов ----------
+
+fn collect_files(root: &Path, cfg: &Config) -> Vec<PathBuf> {
+    if root.is_file() {
+        return vec![root.to_path_buf()];
+    }
+    let ignored: Vec<String> = cfg.ignore_dirs.clone();
+    let walker = WalkDir::new(root).follow_links(false).into_iter().filter_entry(|e: &DirEntry| {
+        if e.depth() == 0 {
+            return true;
         }
-        Cmd::Check => {
-            let test = [0u8; 8];
-            let h = hex::encode(Sha256::digest(test));
-            match circl_lookup(&h) {
-                Ok(_) => println!("CIRCL hashlookup: доступен"),
-                Err(e) => println!("CIRCL hashlookup: недоступен ({e:#})"),
-            }
-            if let Some(host) = cfg.clamd_host {
-                match clamd_scan(Path::new(".zzz-nonexistent"), &host, cfg.clamd_port) {
-                    Ok(_) => println!("clamd {host}: доступен"),
-                    Err(_) => println!("clamd {host}: недоступен/не рассылает ответ на такой файл"),
-                }
-            } else {
-                println!("clamd: не настроен");
-            }
+        if !e.file_type().is_dir() {
+            return true;
+        }
+        let name = e.file_name().to_string_lossy().to_string();
+        !ignored.contains(&name)
+    });
+    let mut files = Vec::new();
+    for entry in walker.flatten() {
+        if entry.file_type().is_file() {
+            files.push(entry.into_path());
         }
     }
-    Ok(())
+    files.sort();
+    files
+}
+
+// ---------- скан одного файла ----------
+
+fn scan_one(path: &Path, cfg: &Config, offline: bool) -> FileResult {
+    let mut res = FileResult {
+        path: path.display().to_string(),
+        ..Default::default()
+    };
+
+    // 1) хэши (потоково, с лимитом)
+    let max_bytes = cfg.max_file_size_mb.saturating_mul(1024 * 1024);
+    match hashes::compute(path, max_bytes) {
+        Ok(h) => {
+            res.size = h.size;
+            res.md5 = h.md5;
+            res.sha1 = h.sha1;
+            res.sha256 = h.sha256;
+            if h.truncated {
+                res.errors
+                    .push(format!("file larger than {} MB, hashes are truncated", cfg.max_file_size_mb));
+            }
+        }
+        Err(e) => {
+            res.errors.push(format!("{e:#}"));
+            return res; // без хэшей нет смысла идти дальше
+        }
+    }
+
+    // 2) открытые базы (только SHA-256)
+    if !offline {
+        match lookups::hashlookup_circl(&res.sha256) {
+            Ok(lookups::LookupHit::Malicious(labels)) => {
+                for l in labels {
+                    res.detections.push(l);
+                }
+            }
+            Ok(lookups::LookupHit::KnownClean) => res.known_clean = true,
+            Ok(lookups::LookupHit::Unknown) => {}
+            Err(e) => res.errors.push(format!("{e:#}")),
+        }
+        match lookups::malwarebazaar_known(&res.sha256, cfg.malwarebazaar_auth_key.as_deref()) {
+            Ok(true) => res.detections.push("malwarebazaar: known sample".to_string()),
+            Ok(false) => {}
+            Err(e) => res.errors.push(format!("{e:#}")),
+        }
+    }
+
+    // 3) ClamAV clamd
+    if let Some(host) = cfg.clamd_host.clone() {
+        match clamd::scan(path, &host, cfg.clamd_port) {
+            Ok(Some(hit)) => res.detections.push(hit),
+            Ok(None) => {}
+            Err(e) => res.errors.push(format!("{e:#}")),
+        }
+    }
+
+    // 4) внешние движки
+    for (name, engine) in &cfg.engines {
+        match engines::run(engine, path) {
+            Ok(hits) => {
+                for hit in hits {
+                    res.detections.push(format!("{name}: {hit}"));
+                }
+            }
+            Err(e) => res.errors.push(format!("{e:#}")),
+        }
+    }
+
+    res
+}
+
+// ---------- команды ----------
+
+fn command_scan(cfg: &Config, path: &Path, json: bool, offline: bool) -> Result {
+    if !path.exists() {
+        return Err(anyhow::anyhow!("path not found: {}", path.display()));
+    }
+    let files = collect_files(path, cfg);
+    let mut results = Vec::new();
+    let mut malicious = 0usize;
+    let mut errored = 0usize;
+
+    for f in &files {
+        let r = scan_one(f, cfg, offline);
+        match r.verdict() {
+            "MALICIOUS" => malicious += 1,
+            "ERROR" => errored += 1,
+            _ => {}
+        }
+        if json {
+            results.push(r);
+        } else {
+            print_result(&r);
+        }
+    }
+
+    if json {
+        let out = serde_json::to_string_pretty(&results)?;
+        println!("{out}");
+    } else {
+        println!(
+            "\n[zeno] scanned: {} file(s), malicious: {}, errored: {}{}",
+            files.len(),
+            malicious,
+            errored,
+            if offline { " (offline mode)" } else { "" }
+        );
+    }
+    // для скриптов: MALICIOUS -> код 1
+    if malicious > 0 {
+        Ok(ExitCode::from(1)) as Result
+    } else {
+        Ok(ExitCode::SUCCESS) as Result
+    }
+    .or_else(|_: anyhow::Error| Ok(ExitCode::from(1)))
+}
+
+fn print_result(r: &FileResult) {
+    let short = if r.sha256.len() >= 16 { &r.sha256[..16] } else { &r.sha256[..] };
+    println!(
+        "{short}  {:>12} B  {:<11}  {}",
+        r.size,
+        r.verdict(),
+        r.path
+    );
+    for d in &r.detections {
+        println!("           ! {d}");
+    }
+    for e in &r.errors {
+        println!("           ? {e}");
+    }
+}
+
+fn command_check(cfg: &Config) -> Result {
+    println!("[zeno] engine version: {}", env!("CARGO_PKG_VERSION"));
+
+    println!("[zeno] checking CIRCL hashlookup...");
+    match lookups::hashlookup_circl(lookups::TEST_SHA256) {
+        Ok(_) => println!("  ok: hashlookup is reachable"),
+        Err(e) => println!("  FAIL: {e:#}"),
+    }
+
+    match &cfg.clamd_host {
+        Some(host) => match clamd::ping(host, cfg.clamd_port) {
+            Ok(true) => println!("  ok: clamd {host}:{} responds PONG", cfg.clamd_port),
+            _ => println!("  FAIL: clamd {host}:{} is not reachable", cfg.clamd_port),
+        },
+        None => println!("[zeno] clamd: not configured (clamd_host in zeno.toml)"),
+    }
+
+    if cfg.malwarebazaar_auth_key.is_some() {
+        println!("[zeno] malwarebazaar auth key: set");
+    } else {
+        println!("[zeno] malwarebazaar auth key: not set (https://bazaar.abuse.ch)");
+    }
+
+    Ok(ExitCode::SUCCESS)
+}
+
+fn command_engines(cfg: &Config) -> Result {
+    if cfg.engines.is_empty() {
+        println!("[zeno] no external engines configured (see zeno.toml.example)");
+    }
+    for (name, e) in &cfg.engines {
+        println!("{name}: {} {}", e.cmd, e.args.join(" "));
+    }
+    match &cfg.clamd_host {
+        Some(h) => println!("clamd: {h}:{}", cfg.clamd_port),
+        None => println!("clamd: not configured"),
+    }
+    Ok(ExitCode::SUCCESS)
 }
