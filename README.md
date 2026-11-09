@@ -15,13 +15,13 @@
 
 ## Установка
 
-Linux / macOS (кучей одной командой):
+Linux / macOS (одной командой):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/rival-afk/zeno/main/install.sh | sh
 ```
 
-Windows (кучей одной командой):
+Windows (одной командой):
 
 ```powershell
 powershell -c "irm https://raw.githubusercontent.com/rival-afk/zeno/main/install.ps1 | iex"
