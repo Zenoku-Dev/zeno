@@ -1,47 +1,56 @@
 #!/bin/sh
-# zeno installer for Linux / macOS.
+# zeno installer for Linux / macOS - downloads the latest release binary.
 # Usage:  curl -fsSL https://raw.githubusercontent.com/rival-afk/zeno/main/install.sh | sh
 set -eu
 
-REPO_URL="https://github.com/rival-afk/zeno"
+REPO="rival-afk/zeno"
+API="https://api.github.com/repos/$REPO/releases/latest"
 
-ensure_cargo() {
-    if command -v cargo >/dev/null 2>&1; then
-        return 0
-    fi
-    echo "[zeno] rust is not installed - installing toolchain via rustup (minimal profile)"
-    if command -v curl >/dev/null 2>&1; then
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
-    elif command -v wget >/dev/null 2>&1; then
-        wget -qO- https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
-    else
-        echo "[zeno] error: need curl or wget to bootstrap rust" >&2
-        exit 1
-    fi
-    export PATH="$HOME/.cargo/bin:$PATH"
+# --- detect platform ---
+case "$(uname -s)" in
+    Linux*)  os=unknown-linux;;
+    Darwin*) os=unknown-darwin;;
+    *)       echo "[zeno] error: unsupported OS: $(uname -s)" >&2; exit 1;;
+esac
+case "$(uname -m)" in
+    x86_64)               arch=x86_64;;
+    aarch64|arm64)        arch=aarch64;;
+    *)                    echo "[zeno] error: unsupported arch: $(uname -m)" >&2; exit 1;;
+esac
+
+echo "[zeno] fetching latest release info..."
+rel_json=$(curl -fsSL "$API") || { echo "[zeno] error: cannot reach GitHub" >&2; exit 1; }
+tag=$(printf '%s' "$rel_json" | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+[ -n "$tag" ] || { echo "[zeno] error: no releases yet. Run these first (on a fixed tree):" >&2; echo "  git tag v0.2.1 && git push origin v0.2.1" >&2; exit 1; }
+
+asset="zeno-${arch}-${os}-musl.tar.gz"
+url=$(printf '%s' "$rel_json" | grep -o "https://[^\"']*${asset}" | head -n 1)
+[ -n "$url" ] || {
+    echo "[zeno] error: asset '$asset' not found in release $tag" >&2
+    echo "[zeno] available assets:" >&2
+    printf '%s' "$rel_json" | grep -o '"browser_download_url":[[:space:]]*"[^"]*"' >&2 || true
+    exit 1
 }
 
-fetch_sources() {
-    tmp="$(mktemp -d /tmp/zeno-setup.XXXXXX)"
-    if command -v git >/dev/null 2>&1; then
-        git clone --depth 1 "$REPO_URL.git" "$tmp"
-    else
-        echo "[zeno] git not found, falling back to tarball"
-        curl -sSL "$REPO_URL/tarball/main" | tar -xz -C "$tmp" --strip-components=1
-    fi
-}
+echo "[zeno] downloading $url ..."
+tmp=$(mktemp -d /tmp/zeno-setup.XXXXXX)
+curl -fsSL "$url" | tar -xz -C "$tmp" --strip-components=1
 
-ensure_cargo
-echo "[zeno] fetching sources..."
-fetch_sources
-echo "[zeno] building (this takes a few minutes on first run)..."
-cargo install --path "$tmp" --locked 2>/dev/null || cargo install --path "$tmp"
+bindir="$HOME/.local/bin"
+mkdir -p "$bindir"
+install -m 0755 "$tmp/zeno" "$bindir/zeno"
+cp "$tmp/zeno.toml.example" "$tmp/README.md" "$HOME" 2>/dev/null || true
 rm -rf "$tmp"
 
+case ":$PATH:" in
+    *:"$bindir":*) ;;
+    *) echo "[zeno] NOTE: add $bindir to PATH (e.g. add to ~/.profile): export PATH=\"$bindir:\$PATH\"";;
+esac
+
 echo ""
-echo "[zeno] done! Binary: $(command -v zeno)"
+echo "[zeno] done! installed $tag -> $bindir/zeno" 
 echo "[zeno] quick start:"
 echo "       zeno scan /path/to/file-or-folder"
-echo "       zeno check   # availability of open databases"
-echo "       zeno engines # list configured engines"
-echo "[zeno] optional config: ~/.zeno/config.toml (see zeno.toml.example in repo)"
+echo "       zeno check    # availability of open databases"
+echo "       zeno engines  # list configured engines"
+echo "[zeno] optional config: ~/.zeno/config.toml (see ~/zeno.toml.example)"
