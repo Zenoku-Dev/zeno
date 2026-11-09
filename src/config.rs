@@ -119,3 +119,53 @@ fn dirs_config() -> PathBuf {
         .map(|h| PathBuf::from(h).join(".zeno"))
         .unwrap_or_else(|_| PathBuf::from("."))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_full_toml() {
+        let v: toml::Table = r#"
+clamd_host = "10.0.0.2"
+clamd_port = 3311
+malwarebazaar_auth_key = "mb-secret"
+max_file_size_mb = 64
+ignore_dirs = [".git", "vendor"]
+
+[engine.clamscan]
+cmd = "clamscan"
+args = ["--no-summary", "{path}"]
+"#
+        .parse()
+        .unwrap();
+        let mut cfg = Config::default();
+        cfg.apply(&v);
+        assert_eq!(cfg.clamd_host.as_deref(), Some("10.0.0.2"));
+        assert_eq!(cfg.clamd_port, 3311);
+        assert_eq!(cfg.malwarebazaar_auth_key.as_deref(), Some("mb-secret"));
+        assert_eq!(cfg.max_file_size_mb, 64);
+        assert_eq!(cfg.ignore_dirs, vec![".git".to_string(), "vendor".to_string()]);
+        let e = &cfg.engines["clamscan"];
+        assert_eq!(e.cmd, "clamscan");
+        assert_eq!(e.args, vec!["--no-summary".to_string(), "{path}".to_string()]);
+    }
+
+    #[test]
+    fn empty_auth_key_means_none_and_engine_without_cmd_is_skipped() {
+        let v: toml::Table = r#"
+malwarebazaar_auth_key = "   "
+clamd_port = 99999
+
+[engine.broken]
+args = ["{path}"]
+"#
+        .parse()
+        .unwrap();
+        let mut cfg = Config::default();
+        cfg.apply(&v);
+        assert!(cfg.malwarebazaar_auth_key.is_none());
+        assert_eq!(cfg.clamd_port, DEFAULT_CLAMD_PORT); // 99999 вне диапазона
+        assert!(!cfg.engines.contains_key("broken"));
+    }
+}

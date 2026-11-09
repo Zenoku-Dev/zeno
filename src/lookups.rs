@@ -90,3 +90,25 @@ pub fn malwarebazaar_known(sha256: &str, auth_key: Option<&str>) -> Result<bool>
         None => Err(anyhow!("malwarebazaar: unexpected response shape")),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sha256_is_valid_hex() {
+        assert_eq!(TEST_SHA256.len(), 64);
+        assert!(TEST_SHA256.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn known_malicious_string_form_parses_as_single_label() {
+        // форма ответа hashlookup.circl.lu: KnownMalicious — обычная строка
+        let v: serde_json::Value = serde_json::json!({"KnownMalicious": "malshare.com"});
+        let labels: Vec<String> = match v.get("KnownMalicious") {
+            Some(serde_json::Value::String(s)) => vec![s.trim().to_string()],
+            _ => vec![],
+        };
+        assert_eq!(labels, vec!["malshare.com"]);
+    }
+}

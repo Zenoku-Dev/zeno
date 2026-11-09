@@ -1,5 +1,9 @@
 # zenо
 
+[![ci](https://github.com/rival-afk/zeno/actions/workflows/ci.yml/badge.svg)](https://github.com/rival-afk/zeno/actions/workflows/ci.yml)
+[![release](https://github.com/rival-afk/zeno/actions/workflows/release.yml/badge.svg)](https://github.com/rival-afk/zeno/actions/workflows/release.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 **zeno** — локальный аналог VirusTotal с открытым кодом, работающий только на открытых движках и открытых базах.
 
 ## Что умеет

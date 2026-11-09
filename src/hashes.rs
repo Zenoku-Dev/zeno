@@ -52,3 +52,40 @@ pub fn compute(path: &Path, max_bytes: u64) -> Result<Hashes> {
         truncated,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    fn tmp_file(name: &str, data: &[u8]) -> std::path::PathBuf {
+        let p = std::env::temp_dir().join(format!("zeno-test-{}-{}", std::process::id(), name));
+        let mut f = std::fs::File::create(&p).unwrap();
+        f.write_all(data).unwrap();
+        p
+    }
+
+    #[test]
+    fn computes_known_hashes() {
+        // sha256("hello") = 2cf24dba...
+        let p = tmp_file("hello", b"hello");
+        let h = compute(&p, 1024).unwrap();
+        std::fs::remove_file(&p).ok();
+        assert_eq!(h.size, 5);
+        assert!(!h.truncated);
+        assert_eq!(h.sha256, "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
+        assert_eq!(h.md5, "5d41402abc4b2a76b9719d911017c592");
+    }
+
+    #[test]
+    fn truncates_large_files() {
+        let p = tmp_file("big", &vec![0x41u8; 10_000]);
+        let h = compute(&p, 100).unwrap();
+        std::fs::remove_file(&p).ok();
+        assert_eq!(h.size, 10_000);
+        assert!(h.truncated);
+        // хэш посчитан по первым 100 байтам, как и документировано
+        let h2 = compute(&tmp_file("big2", &vec![0x41u8; 100]), 100).unwrap();
+        assert_eq!(h.sha256, h2.sha256);
+    }
+}

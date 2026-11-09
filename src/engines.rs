@@ -41,3 +41,22 @@ fn hit_lines(text: &str) -> Vec<String> {
         .map(String::from)
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn picks_hit_lines() {
+        let out = "/tmp/a.exe: Win.Test.EICAR_HDB-1 FOUND\nnothing here\n/tmp/b: OK\nNo matches found";
+        let hits = hit_lines(out);
+        assert_eq!(hits, vec!["/tmp/a.exe: Win.Test.EICAR_HDB-1 FOUND"]);
+    }
+
+    #[test]
+    fn picks_matches_and_hit_colon() {
+        let out = "some rule matches: https://example.com\nHIT: sig-123\nNo matches at all";
+        let hits = hit_lines(out);
+        assert_eq!(hits, vec!["some rule matches: https://example.com", "HIT: sig-123"]);
+    }
+}

@@ -1,6 +1,6 @@
 [package]
 name = "zeno"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "zeno — локальный аналог VirusTotal с открытым кодом: хэши, проверки по открытым базам и сканирование открытыми AV-движками (ClamAV, YARA-X)"
 license = "MIT"
