@@ -1,14 +1,14 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/rival-afk/zenoku-design/main/assets/zeno/png/readme-banner-dark.png">
-    <img src="https://raw.githubusercontent.com/rival-afk/zenoku-design/main/assets/zeno/png/readme-banner.png" alt="zeno" width="440">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Zenoku-Dev/zenoku-design/main/assets/zeno/png/readme-banner-dark.png">
+    <img src="https://raw.githubusercontent.com/Zenoku-Dev/zenoku-design/main/assets/zeno/png/readme-banner.png" alt="zeno" width="440">
   </picture>
 </p>
 
 # zenо
 
-[![ci](https://github.com/rival-afk/zeno/actions/workflows/ci.yml/badge.svg)](https://github.com/rival-afk/zeno/actions/workflows/ci.yml)
-[![release](https://github.com/rival-afk/zeno/actions/workflows/release.yml/badge.svg)](https://github.com/rival-afk/zeno/actions/workflows/release.yml)
+[![ci](https://github.com/Zenoku-Dev/zeno/actions/workflows/ci.yml/badge.svg)](https://github.com/Zenoku-Dev/zeno/actions/workflows/ci.yml)
+[![release](https://github.com/Zenoku-Dev/zeno/actions/workflows/release.yml/badge.svg)](https://github.com/Zenoku-Dev/zeno/actions/workflows/release.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 **zeno** — локальный аналог VirusTotal с открытым кодом, работающий только на открытых движках и открытых базах.
@@ -34,13 +34,13 @@
 Linux / macOS (одной командой):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rival-afk/zeno/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Zenoku-Dev/zeno/main/install.sh | sh
 ```
 
 Windows (одной командой):
 
 ```powershell
-powershell -c "irm https://raw.githubusercontent.com/rival-afk/zeno/main/install.ps1 | iex"
+powershell -c "irm https://raw.githubusercontent.com/Zenoku-Dev/zeno/main/install.ps1 | iex"
 ```
 
 Бинарник для Windows устанавливается в `%LOCALAPPDATA%\Programs\zeno` и добавляется в user PATH.
@@ -49,7 +49,7 @@ powershell -c "irm https://raw.githubusercontent.com/rival-afk/zeno/main/install
 Вручную:
 
 ```bash
-git clone https://github.com/rival-afk/zeno && \
+git clone https://github.com/Zenoku-Dev/zeno && \
 cargo install --path zeno    # сборка из исходников, если релизов нет
 ```
 

@@ -1,12 +1,12 @@
 # zeno installer for Windows (PowerShell 5.1+).
 # Downloads the latest release binary from GitHub Releases.
 # Usage (one-liner):
-#   powershell -c "irm https://raw.githubusercontent.com/rival-afk/zeno/main/install.ps1 | iex"
+#   powershell -c "irm https://raw.githubusercontent.com/Zenoku-Dev/zeno/main/install.ps1 | iex"
 
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$repo = 'rival-afk/zeno'
+$repo = 'Zenoku-Dev/zeno'
 $apiUrl = "https://api.github.com/repos/$repo/releases/latest"
 
 if ($env:PROCESSOR_ARCHITECTURE -notmatch 'AMD64|X64|ARM64') {

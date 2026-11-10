@@ -1,9 +1,9 @@
 #!/bin/sh
 # zeno installer for Linux / macOS - downloads the latest release binary.
-# Usage:  curl -fsSL https://raw.githubusercontent.com/rival-afk/zeno/main/install.sh | sh
+# Usage:  curl -fsSL https://raw.githubusercontent.com/Zenoku-Dev/zeno/main/install.sh | sh
 set -eu
 
-REPO="rival-afk/zeno"
+REPO="Zenoku-Dev/zeno"
 API="https://api.github.com/repos/$REPO/releases/latest"
 
 echo "[zeno] fetching latest release info..."
